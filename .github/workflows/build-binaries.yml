@@ -1,27 +1,32 @@
 name: Build Shadowsocks + tun2socks for Android
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install deps
+      - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y git curl unzip build-essential pkg-config clang llvm golang
+          sudo apt-get install -y git curl unzip build-essential pkg-config clang llvm
 
-      - name: Setup NDK r26d
-        id: ndk
+      - name: Setup Go (for tun2socks)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Setup Android NDK (r26d)
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26d
 
-      # FIX: прокинем ANDROID_NDK_HOME = ANDROID_NDK_ROOT (это нужно cargo-ndk)
+      # cargo-ndk смотрит именно на ANDROID_NDK_HOME → пробросим значение
       - name: Export ANDROID_NDK_HOME
         run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_ROOT" >> $GITHUB_ENV
 
@@ -30,13 +35,14 @@ jobs:
           curl https://sh.rustup.rs -sSf | sh -s -- -y
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           source $HOME/.cargo/env
-          cargo install cargo-ndk
+          cargo --version
           rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          cargo install cargo-ndk
 
-      - name: Build
+      - name: Build all binaries
         run: bash scripts/build.sh
 
-      - name: Upload artifact
+      - name: Upload artifact (out.zip)
         uses: actions/upload-artifact@v4
         with:
           name: bin
