@@ -9,11 +9,20 @@ rm -rf "$OUT" && mkdir -p "$OUT"/{arm64-v8a,armeabi-v7a,x86,x86_64}
 TOOLCHAIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
 AR="${TOOLCHAIN}/llvm-ar"
 
-echo "NDK at: ${ANDROID_NDK_HOME}"
-echo "Toolchain dir: ${TOOLCHAIN}"
-ls -la "${TOOLCHAIN}" | head -n 50
+echo "NDK: ${ANDROID_NDK_HOME}"
+echo "TOOLCHAIN: ${TOOLCHAIN}"
 
-# helper: экспорт динамических переменных (без переносов строк)
+# Убедимся, что нужные компиляторы существуют
+for cc in \
+  "aarch64-linux-android${API}-clang" \
+  "armv7a-linux-androideabi${API}-clang" \
+  "i686-linux-android${API}-clang" \
+  "x86_64-linux-android${API}-clang"
+do
+  test -x "${TOOLCHAIN}/${cc}" || { echo "ERROR: ${TOOLCHAIN}/${cc} not found"; exit 1; }
+done
+
+# Хелпер для экспорта переменных под конкретный rust target
 export_target_vars () {
   local TARGET="$1"; local CC="$2"
   local TUP="$(echo "${TARGET}" | tr '-' '_')"
@@ -24,16 +33,20 @@ export_target_vars () {
 
 build_sslocal () {
   local TARGET="$1" CC="$2" SUB="$3"
-  echo ">>> sslocal for ${TARGET}"
+  echo ">>> build sslocal for ${TARGET}"
   export_target_vars "${TARGET}" "${CC}"
   RUSTFLAGS="-C link-arg=-fuse-ld=lld" \
     cargo build --release --target "${TARGET}" --bin sslocal
   cp "target/${TARGET}/release/sslocal" "${OUT}/${SUB}/ss-local"
+  chmod +x "${OUT}/${SUB}/ss-local"
 }
 
 echo "=== Clone shadowsocks-rust ==="
 git clone --depth=1 https://github.com/shadowsocks/shadowsocks-rust.git ss-rust
 pushd ss-rust >/dev/null
+
+# Rust targets уже добавлены в workflow, но дублируем на всякий
+rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
 
 build_sslocal aarch64-linux-android   "${TOOLCHAIN}/aarch64-linux-android${API}-clang"      arm64-v8a
 build_sslocal armv7-linux-androideabi "${TOOLCHAIN}/armv7a-linux-androideabi${API}-clang"   armeabi-v7a
