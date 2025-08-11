@@ -12,7 +12,7 @@ AR="${TOOLCHAIN}/llvm-ar"
 echo "NDK: ${ANDROID_NDK_HOME}"
 echo "TOOLCHAIN: ${TOOLCHAIN}"
 
-# Убедимся, что нужные компиляторы существуют
+# Проверим, что компиляторы на месте
 for cc in \
   "aarch64-linux-android${API}-clang" \
   "armv7a-linux-androideabi${API}-clang" \
@@ -22,20 +22,20 @@ do
   test -x "${TOOLCHAIN}/${cc}" || { echo "ERROR: ${TOOLCHAIN}/${cc} not found"; exit 1; }
 done
 
-# Хелпер для экспорта переменных под конкретный rust target
-export_target_vars () {
+# Для cc crate: CC_<triple> и AR_<triple> (lowercase с _)
+export_cc_vars () {
   local TARGET="$1"; local CC="$2"
-  local TUP="$(echo "${TARGET}" | tr '-' '_')"
+  local TUP="$(echo "${TARGET}" | tr '-' '_')"       # aarch64-linux-android -> aarch64_linux_android
   eval "export CC_${TUP}='${CC}'"
   eval "export AR_${TUP}='${AR}'"
-  eval "export CARGO_TARGET_${TUP}_LINKER='${CC}'"
 }
 
 build_sslocal () {
   local TARGET="$1" CC="$2" SUB="$3"
-  echo ">>> build sslocal for ${TARGET}"
-  export_target_vars "${TARGET}" "${CC}"
-  RUSTFLAGS="-C link-arg=-fuse-ld=lld" \
+  echo ">>> sslocal for ${TARGET}"
+  export_cc_vars "${TARGET}" "${CC}"
+  # Ключ: укажем rustc явный линкер clang из NDK
+  RUSTFLAGS="-C linker=${CC} -C link-arg=-fuse-ld=lld" \
     cargo build --release --target "${TARGET}" --bin sslocal
   cp "target/${TARGET}/release/sslocal" "${OUT}/${SUB}/ss-local"
   chmod +x "${OUT}/${SUB}/ss-local"
@@ -44,15 +44,12 @@ build_sslocal () {
 echo "=== Clone shadowsocks-rust ==="
 git clone --depth=1 https://github.com/shadowsocks/shadowsocks-rust.git ss-rust
 pushd ss-rust >/dev/null
-
-# Rust targets уже добавлены в workflow, но дублируем на всякий
 rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
 
 build_sslocal aarch64-linux-android   "${TOOLCHAIN}/aarch64-linux-android${API}-clang"      arm64-v8a
 build_sslocal armv7-linux-androideabi "${TOOLCHAIN}/armv7a-linux-androideabi${API}-clang"   armeabi-v7a
 build_sslocal i686-linux-android      "${TOOLCHAIN}/i686-linux-android${API}-clang"         x86
 build_sslocal x86_64-linux-android    "${TOOLCHAIN}/x86_64-linux-android${API}-clang"       x86_64
-
 popd >/dev/null
 
 echo "=== Build tun2socks (eycorsican/go-tun2socks) ==="
@@ -70,7 +67,6 @@ CGO_ENABLED=1 CC="${TOOLCHAIN}/i686-linux-android${API}-clang" GOOS=android GOAR
 
 CGO_ENABLED=1 CC="${TOOLCHAIN}/x86_64-linux-android${API}-clang" GOOS=android GOARCH=amd64 \
   go build -trimpath -ldflags="-s -w" -o "${OUT}/x86_64/tun2socks" ./cmd/tun2socks
-
 popd >/dev/null
 
 echo "=== Results ==="
